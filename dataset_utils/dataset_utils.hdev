@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hdevelop file_version="1.2" halcon_version="24.11.1.0">
+<procedure name="main">
+<interface/>
+<body>
+<c>* --------------------------------------------------------------</c>
+<c>* Halcon深度学习数据集转YOLO格式转换脚本</c>
+<c>* 版本：v2.0（支持实例分割 - Instance Segmentation）</c>
+<c>* 功能：将Halcon的.hdict标注文件转换为YOLO-seg格式的txt标注文件和图像数据集</c>
+<c>* 格式：class_id x1 y1 x2 y2 ... xn yn （多边形坐标，归一化）</c>
+<c>* --------------------------------------------------------------</c>
+<c></c>
+<c>* ​**​​**​​**​​**​​**​​**​ 步骤1：读取Halcon标注数据集 ​**​​**​​**​​**​​**​​**​</c>
+<l>read_dict ('C:/Users/29115/yolov8/yolov11-seg/yolov11-seg.hdict', [], [], HalconDict)  // 读取Halcon标注文件</l>
+<c></c>
+<l>get_dict_param (HalconDict, 'keys', [], DatasetKeys)  // 获取数据集主键列表</l>
+<c></c>
+<c>* 解析数据集结构（根据实际结构顺序调整索引）</c>
+<l>get_dict_tuple (HalconDict, DatasetKeys[0], class_ids)    // 类别ID列表</l>
+<l>get_dict_tuple (HalconDict, DatasetKeys[1], class_names) // 类别名称列表</l>
+<l>get_dict_tuple (HalconDict, DatasetKeys[2], image_dir)   // 原图存储路径</l>
+<l>get_dict_tuple (HalconDict, DatasetKeys[3], samples_list) // 样本数据列表</l>
+<c></c>
+<c></c>
+<c>* ​**​​**​​**​​**​​**​​**​ 路径配置部分 ​**​​**​​**​​**​​**​​**​</c>
+<c>* 使用从hdict读取的image_dir，或者手动覆盖为实际图像路径</c>
+<l>image_dir := 'C:/Users/29115/yolov8/yolov11-seg/yolov11-seg_images/'  // 修改为实际图像路径</l>
+<c></c>
+<c>* ​**​​**​​**​​**​​**​​**​ 步骤2：创建类别映射字典 ​**​​**​​**​​**​​**​​**​</c>
+<l>* create_dict (ClassMap)  // 初始化字典</l>
+<l>* set_dict_tuple (ClassMap, 'defect', 0)   // 缺陷类映射为0</l>
+<l>* set_dict_tuple (ClassMap, 'scratch', 1)  // 划痕类映射为1</l>
+<c></c>
+<c>* ​**​​**​​**​​**​​**​​**​ 主处理循环：遍历每个样本 ​**​​**​​**​​**​​**​​**​</c>
+<l>for Index := 0 to |samples_list| - 1 by 1</l>
+<l>    samples := samples_list[Index]  // 当前样本数据</l>
+<c>    </c>
+<c>    * 调试输出（检查前几张图片的尺寸）</c>
+<l>    *if (Index != 792)</l>
+<l>     *   continue</l>
+<l>    *endif</l>
+<c>    </c>
+<c>    * 解析样本元数据</c>
+<l>    get_dict_tuple (samples, 'image_file_name', samples_image_file_name)  // 图像文件名</l>
+<l>    get_dict_tuple (samples, 'bbox_label_id', samples_bbox_label_id)      // 标签ID列表</l>
+<c>    </c>
+<c>    * 提取坐标数据</c>
+<l>    get_dict_tuple (samples, 'bbox_row1', samples_bbox_row1)  // 左上角Y坐标</l>
+<l>    get_dict_tuple (samples, 'bbox_row2', samples_bbox_row2)  // 右下角Y坐标</l>
+<l>    get_dict_tuple (samples, 'bbox_col1', samples_bbox_col1)  // 左上角X坐标</l>
+<l>    get_dict_tuple (samples, 'bbox_col2', samples_bbox_col2)  // 右下角X坐标</l>
+<c>    </c>
+<c>    * 提取分割掩码数据（实例分割所需 - 从iconic region对象中提取）</c>
+<l>    get_dict_object (MaskRegions, samples, 'mask')  // 获取mask的region对象数组</l>
+<c></c>
+<c>    * ​**​​**​​**​​**​​**​​**​ 图像处理部分 ​**​​**​​**​​**​​**​​**​</c>
+<l>    ImageFileName := image_dir + samples_image_file_name  // 拼接完整路径</l>
+<l>    read_image (Image, ImageFileName)          // 加载图像</l>
+<l>    get_image_size (Image, Width, Height)     // 获取宽高尺寸（每张图片都要获取）</l>
+<c>    </c>
+<c>    </c>
+<c>   </c>
+<c></c>
+<c>    * ​**​​**​​**​​**​​**​​**​ 标注转换处理 ​**​​**​​**​​**​​**​​**​</c>
+<l>    YoloAnnotations := []  // 初始化标注列表</l>
+<l>    for Index_label_id := 0 to |samples_bbox_label_id| - 1 by 1</l>
+<c>        * 提取当前bbox坐标</c>
+<l>        Row1 := samples_bbox_row1[Index_label_id]</l>
+<l>        Row2 := samples_bbox_row2[Index_label_id]</l>
+<l>        Col1 := samples_bbox_col1[Index_label_id] </l>
+<l>        Col2 := samples_bbox_col2[Index_label_id]</l>
+<c></c>
+<c>        * 获取类别ID</c>
+<l>        ClassID := samples_bbox_label_id[Index_label_id]</l>
+<c>        </c>
+<c>        * ​**​​**​​**​​**​​**​​**​ 处理分割掩码坐标 ​**​​**​​**​​**​​**​​**​</c>
+<c>        * 从region数组中选择当前对象的region</c>
+<l>        select_obj (MaskRegions, CurrentMaskRegion, Index_label_id + 1)  // 选择第N个region（索引从1开始）</l>
+<c>        </c>
+<c>        * 从region中获取轮廓多边形坐标</c>
+<l>        get_region_polygon (CurrentMaskRegion, 0, MaskRow, MaskCol)  // 提取多边形轮廓</l>
+<c>        </c>
+<c>        * 转换为YOLO格式字符串（类别ID + 归一化坐标）</c>
+<l>        tuple_string (ClassID, 'd', ClassIDStr)</l>
+<l>        YoloLine := ClassIDStr  // 从类别ID开始</l>
+<c>        </c>
+<c>        * 遍历mask的每个点，归一化并转换为字符串</c>
+<l>        for PointIdx := 0 to |MaskCol| - 1 by 1</l>
+<l>            NormX := real(MaskCol[PointIdx]) / real(Width)   // X坐标归一化</l>
+<l>            NormY := real(MaskRow[PointIdx]) / real(Height)  // Y坐标归一化</l>
+<c>            </c>
+<c>            * 限制坐标在[0,1]范围内（防止标注越界）</c>
+<l>            if (NormX &lt; 0.0)</l>
+<l>                NormX := 0.0</l>
+<l>            endif</l>
+<l>            if (NormX &gt; 1.0)</l>
+<l>                NormX := 1.0</l>
+<l>            endif</l>
+<l>            if (NormY &lt; 0.0)</l>
+<l>                NormY := 0.0</l>
+<l>            endif</l>
+<l>            if (NormY &gt; 1.0)</l>
+<l>                NormY := 1.0</l>
+<l>            endif</l>
+<c>            </c>
+<l>            tuple_string (NormX, '.6f', NormXStr)</l>
+<l>            tuple_string (NormY, '.6f', NormYStr)</l>
+<c>            </c>
+<l>            YoloLine := YoloLine + ' ' + NormXStr + ' ' + NormYStr  // 追加坐标对</l>
+<l>        endfor</l>
+<c></c>
+<l>        YoloAnnotations := [YoloAnnotations, YoloLine]  // 添加到列表</l>
+<l>    endfor</l>
+<c></c>
+<l>    ImageFileName := regexp_replace(ImageFileName, '\\\\+', '/')  // 路径标准化</l>
+<l>    FileName := regexp_replace(ImageFileName, '^.*/([^/]+)\\..*$', '$1')  // 提取基础名</l>
+<c>    </c>
+<c>    * 从ImageFileName中提取train或val子目录</c>
+<l>    SubDir := regexp_replace(ImageFileName, '.*(train|val).*', '$1')  // 提取train或val</l>
+<c>    </c>
+<l>    YoloLabelPath := 'C:/Users/29115/yolov8/yolov11-seg/datasets/labels/' + SubDir + '/' + FileName + '.txt'  // 生成标签路径(保持train/val结构)</l>
+<l>    open_file (YoloLabelPath, 'output', FileHandle)      // 打开文件(覆盖模式,避免重复追加)</l>
+<l>    for LineIdx := 0 to |YoloAnnotations| - 1 by 1</l>
+<l>        fwrite_string (FileHandle, YoloAnnotations[LineIdx] + '\n')  // 逐行写入</l>
+<l>    endfor</l>
+<l>    close_file (FileHandle)  // 关闭文件句柄</l>
+<c></c>
+<l>    DestImagePath := 'C:/Users/29115/yolov8/yolov11-seg/datasets/images/' + SubDir + '/' + samples_image_file_name  // 目标路径(保持train/val结构)</l>
+<l>    copy_file (ImageFileName, DestImagePath)  // 执行文件拷贝</l>
+<c>    </c>
+<c>    * 进度显示（每50个样本打印一次）</c>
+<l>*     if (Index % 50 == 0)</l>
+<c>*         </c>
+<l>*     endif</l>
+<l>endfor</l>
+<c></c>
+<c></c>
+<c>* --------------------------------------------------------------</c>
+<c>* 步骤5：生成YOLO配置文件（Halcon 22需要显式编码声明）   下面的代码可以不用运行</c>
+<c>* --------------------------------------------------------------</c>
+<l>* YamlContent := ['% -*- encoding: utf-8 -*-', \
+                'path: ../yolo_dataset', \
+                'train: yolo_images', \
+                'val: yolo_images  # 实际需要划分训练验证集', \
+                'test:  # 可选', \
+                '', \
+                'names:', \
+                '  0: defect', \
+                '  1: scratch']</l>
+<c></c>
+<c></c>
+<c></c>
+<c></c>
+<c>* 设置UTF-8编码（全局生效）</c>
+<l>* set_system ('file_encoding', 'utf8')</l>
+<c></c>
+<c>* 打开文件（覆盖模式）</c>
+<l>* open_file ('dataset.yaml', 'output', FileHandle)</l>
+<c></c>
+<c>* 逐行写入</c>
+<l>* for LineIdx := 0 to |YamlContent| - 1 by 1</l>
+<l>*     fwrite_string (FileHandle, YamlContent[LineIdx] + '\n')</l>
+<l>* endfor</l>
+<c></c>
+<c>* 关闭文件</c>
+<l>* close_file (FileHandle)</l>
+</body>
+<docu id="main">
+<parameters/>
+</docu>
+</procedure>
+</hdevelop>

@@ -1,0 +1,19 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+yolov11-seg_images
+
+*.dltp
+*.hdict
+
+*.pt
+
+/runs
+/datasets
