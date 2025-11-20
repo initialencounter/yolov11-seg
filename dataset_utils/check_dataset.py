@@ -1,6 +1,7 @@
 """
 YOLOv11分割数据集格式检测脚本
 检测数据集是否符合YOLO格式要求,输出详细的错误信息
+优化版本: 使用多进程和缓存提升大数据集检查速度
 """
 
 import os
@@ -8,17 +9,129 @@ import yaml
 from pathlib import Path
 from PIL import Image
 import numpy as np
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from multiprocessing import Manager, cpu_count
+from tqdm import tqdm
+import struct
+
+def get_image_size_fast(image_path):
+    """
+    快速获取图像尺寸,不完全加载图像
+    
+    Args:
+        image_path: 图像文件路径
+        
+    Returns:
+        (width, height) 或 None
+    """
+    try:
+        with Image.open(image_path) as img:
+            return img.size
+    except:
+        return None
+
+
+def check_single_label(args):
+    """
+    检查单个标签文件 (用于多进程)
+    
+    Args:
+        args: (label_path, img_width, img_height, num_classes)
+        
+    Returns:
+        dict: 包含检查结果的字典
+    """
+    label_path, img_width, img_height, num_classes = args
+    result = {
+        'errors': [],
+        'warnings': [],
+        'is_empty': False,
+        'is_invalid': False
+    }
+    
+    try:
+        with open(label_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+    except Exception as e:
+        result['errors'].append(f"❌ 无法读取标签文件 {label_path.name}: {e}")
+        result['is_invalid'] = True
+        return result
+    
+    # 检查是否为空文件
+    if len(lines) == 0:
+        result['warnings'].append(f"⚠ 空标签文件: {label_path.name}")
+        result['is_empty'] = True
+        return result
+    
+    # 检查每一行
+    for line_num, line in enumerate(lines, 1):
+        line = line.strip()
+        if not line:
+            continue
+        
+        parts = line.split()
+        
+        # 检查格式
+        if len(parts) < 7:
+            result['errors'].append(
+                f"❌ 标签格式错误 {label_path.name}:{line_num} - "
+                f"坐标点数不足 (需要至少3个点，当前: {(len(parts)-1)//2}个点)"
+            )
+            result['is_invalid'] = True
+            continue
+        
+        try:
+            # 检查类别ID
+            class_id = int(parts[0])
+            if class_id < 0 or class_id >= num_classes:
+                result['errors'].append(
+                    f"❌ 标签文件 {label_path.name}:{line_num} - "
+                    f"类别ID {class_id} 超出范围 [0, {num_classes-1}]"
+                )
+                result['is_invalid'] = True
+            
+            # 检查坐标点数是否为偶数
+            coords = parts[1:]
+            if len(coords) % 2 != 0:
+                result['errors'].append(
+                    f"❌ 标签文件 {label_path.name}:{line_num} - "
+                    f"坐标数量为奇数 ({len(coords)})"
+                )
+                result['is_invalid'] = True
+                continue
+            
+            # 检查每个坐标值
+            for i, coord in enumerate(coords):
+                coord_val = float(coord)
+                if coord_val < 0 or coord_val > 1:
+                    result['errors'].append(
+                        f"❌ 标签文件 {label_path.name}:{line_num} - "
+                        f"坐标值 {coord_val} 超出范围 [0, 1] (索引: {i})"
+                    )
+                    result['is_invalid'] = True
+                    break
+        
+        except ValueError as e:
+            result['errors'].append(
+                f"❌ 标签文件 {label_path.name}:{line_num} - "
+                f"数值格式错误: {e}"
+            )
+            result['is_invalid'] = True
+    
+    return result
 
 
 class DatasetChecker:
-    def __init__(self, yaml_path):
+    def __init__(self, yaml_path, num_workers=None):
         """
         初始化数据集检测器
         
         Args:
             yaml_path: 数据集配置文件路径
+            num_workers: 工作进程数,默认为CPU核心数
         """
         self.yaml_path = yaml_path
+        self.num_workers = num_workers or max(1, cpu_count() - 1)
         self.errors = []
         self.warnings = []
         self.stats = {
@@ -72,14 +185,16 @@ class DatasetChecker:
         return data
     
     def check_images_and_labels(self, dataset_config):
-        """检查图像和标签文件"""
+        """检查图像和标签文件 (优化版本)"""
         print("\n=== 检查图像和标签文件 ===")
+        print(f"使用 {self.num_workers} 个工作进程")
         
         if dataset_config is None:
             return
         
         dataset_path = Path(dataset_config['path'])
         splits = ['train', 'val']
+        num_classes = len(dataset_config['names'])
         
         for split in splits:
             if split not in dataset_config or not dataset_config[split]:
@@ -94,7 +209,7 @@ class DatasetChecker:
                 self.errors.append(f"❌ {split} 图像目录不存在: {img_dir}")
                 continue
             
-            # 标签目录 (通常是images -> labels)
+            # 标签目录
             label_dir = dataset_path / dataset_config[split].replace('images', 'labels')
             if not label_dir.exists():
                 self.errors.append(f"❌ {split} 标签目录不存在: {label_dir}")
@@ -103,12 +218,13 @@ class DatasetChecker:
             print(f"✓ 图像目录: {img_dir}")
             print(f"✓ 标签目录: {label_dir}")
             
-            # 获取所有图像文件
-            image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.gif']
-            image_files = []
-            for ext in image_extensions:
-                image_files.extend(list(img_dir.glob(f'*{ext}')))
-                image_files.extend(list(img_dir.glob(f'*{ext.upper()}')))
+            # 获取所有图像文件 (优化: 使用rglob一次性获取)
+            image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.gif'}
+            print("正在扫描图像文件...")
+            image_files = [
+                f for f in img_dir.iterdir() 
+                if f.suffix.lower() in image_extensions
+            ]
             
             print(f"✓ 找到 {len(image_files)} 张图像")
             self.stats['total_images'] += len(image_files)
@@ -117,120 +233,68 @@ class DatasetChecker:
                 self.errors.append(f"❌ {split} 数据集中没有找到图像文件")
                 continue
             
-            # 检查每张图像和对应的标签
-            for img_path in image_files:
-                # 对应的标签文件
-                label_path = label_dir / (img_path.stem + '.txt')
-                
-                # 检查标签文件是否存在
-                if not label_path.exists():
-                    self.errors.append(f"❌ 缺少标签文件: {img_path.name} -> {label_path.name}")
-                    self.stats['missing_labels'] += 1
-                    continue
-                
-                self.stats['total_labels'] += 1
-                
-                # 检查图像文件
-                try:
-                    img = Image.open(img_path)
-                    img_width, img_height = img.size
-                    img.close()
-                except Exception as e:
-                    self.errors.append(f"❌ 无法打开图像: {img_path.name}, 错误: {e}")
-                    continue
-                
-                # 检查标签文件格式
-                self.check_label_file(label_path, img_path.name, img_width, img_height, 
-                                     len(dataset_config['names']))
+            # 构建图像文件名到路径的映射 (优化: O(1)查找)
+            image_stem_to_path = {img.stem: img for img in image_files}
             
-            # 检查是否有多余的标签文件（没有对应的图像）
+            # 获取所有标签文件
+            print("正在扫描标签文件...")
             label_files = list(label_dir.glob('*.txt'))
-            image_stems = {img.stem for img in image_files}
+            
+            # 检查缺失的标签文件
+            print("检查缺失的标签文件...")
+            for img_path in tqdm(image_files, desc="检查标签存在性", disable=len(image_files)<100):
+                label_path = label_dir / (img_path.stem + '.txt')
+                if not label_path.exists():
+                    self.errors.append(f"❌ 缺少标签文件: {img_path.name}")
+                    self.stats['missing_labels'] += 1
+            
+            # 找出存在的图像-标签对
+            valid_pairs = []
+            for img_path in image_files:
+                label_path = label_dir / (img_path.stem + '.txt')
+                if label_path.exists():
+                    valid_pairs.append((img_path, label_path))
+            
+            self.stats['total_labels'] += len(valid_pairs)
+            
+            # 使用多进程并行检查标签格式
+            if valid_pairs:
+                print(f"使用多进程检查 {len(valid_pairs)} 个标签文件...")
+                
+                # 准备任务参数
+                tasks = []
+                for img_path, label_path in valid_pairs:
+                    # 快速获取图像尺寸
+                    img_size = get_image_size_fast(img_path)
+                    if img_size is None:
+                        self.errors.append(f"❌ 无法打开图像: {img_path.name}")
+                        continue
+                    
+                    img_width, img_height = img_size
+                    tasks.append((label_path, img_width, img_height, num_classes))
+                
+                # 多进程处理
+                with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
+                    futures = {executor.submit(check_single_label, task): task for task in tasks}
+                    
+                    for future in tqdm(as_completed(futures), total=len(tasks), desc="检查标签格式"):
+                        try:
+                            result = future.result()
+                            self.errors.extend(result['errors'])
+                            self.warnings.extend(result['warnings'])
+                            if result['is_empty']:
+                                self.stats['empty_labels'] += 1
+                            if result['is_invalid']:
+                                self.stats['invalid_labels'] += 1
+                        except Exception as e:
+                            self.errors.append(f"❌ 处理标签时出错: {e}")
+            
+            # 检查多余的标签文件
+            print("检查多余的标签文件...")
             for label_path in label_files:
-                if label_path.stem not in image_stems:
+                if label_path.stem not in image_stem_to_path:
                     self.warnings.append(f"⚠ 标签文件没有对应的图像: {label_path.name}")
                     self.stats['missing_images'] += 1
-    
-    def check_label_file(self, label_path, image_name, img_width, img_height, num_classes):
-        """
-        检查单个标签文件的格式
-        
-        Args:
-            label_path: 标签文件路径
-            image_name: 对应的图像文件名
-            img_width: 图像宽度
-            img_height: 图像高度
-            num_classes: 类别数量
-        """
-        try:
-            with open(label_path, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-        except Exception as e:
-            self.errors.append(f"❌ 无法读取标签文件 {label_path.name}: {e}")
-            self.stats['invalid_labels'] += 1
-            return
-        
-        # 检查是否为空文件
-        if len(lines) == 0:
-            self.warnings.append(f"⚠ 空标签文件: {label_path.name} (图像: {image_name})")
-            self.stats['empty_labels'] += 1
-            return
-        
-        # 检查每一行
-        for line_num, line in enumerate(lines, 1):
-            line = line.strip()
-            if not line:
-                continue
-            
-            parts = line.split()
-            
-            # 检查格式：class_id x1 y1 x2 y2 ... (分割格式至少需要6个点，即12个坐标)
-            if len(parts) < 7:  # class_id + 至少3个点(6个坐标)
-                self.errors.append(
-                    f"❌ 标签格式错误 {label_path.name}:{line_num} - "
-                    f"坐标点数不足 (需要至少3个点，当前: {(len(parts)-1)//2}个点)"
-                )
-                self.stats['invalid_labels'] += 1
-                continue
-            
-            try:
-                # 检查类别ID
-                class_id = int(parts[0])
-                if class_id < 0 or class_id >= num_classes:
-                    self.errors.append(
-                        f"❌ 标签文件 {label_path.name}:{line_num} - "
-                        f"类别ID {class_id} 超出范围 [0, {num_classes-1}]"
-                    )
-                    self.stats['invalid_labels'] += 1
-                
-                # 检查坐标点数是否为偶数
-                coords = parts[1:]
-                if len(coords) % 2 != 0:
-                    self.errors.append(
-                        f"❌ 标签文件 {label_path.name}:{line_num} - "
-                        f"坐标数量为奇数 ({len(coords)})"
-                    )
-                    self.stats['invalid_labels'] += 1
-                    continue
-                
-                # 检查每个坐标值
-                for i, coord in enumerate(coords):
-                    coord_val = float(coord)
-                    # YOLO格式坐标应该是归一化的 [0, 1]
-                    if coord_val < 0 or coord_val > 1:
-                        self.errors.append(
-                            f"❌ 标签文件 {label_path.name}:{line_num} - "
-                            f"坐标值 {coord_val} 超出范围 [0, 1] (索引: {i})"
-                        )
-                        self.stats['invalid_labels'] += 1
-                        break
-                
-            except ValueError as e:
-                self.errors.append(
-                    f"❌ 标签文件 {label_path.name}:{line_num} - "
-                    f"数值格式错误: {e}"
-                )
-                self.stats['invalid_labels'] += 1
     
     def print_summary(self):
         """打印检测摘要"""
@@ -286,11 +350,23 @@ class DatasetChecker:
 
 def main():
     """主函数"""
-    # 数据集配置文件路径
-    yaml_path = "datasets/yolo11n-seg.yaml"
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='YOLOv11分割数据集格式检测工具 (优化版)')
+    parser.add_argument('--yaml', type=str, 
+                       default=r"C:\Users\29115\yolov8\yolov11-seg\datasets17k_yolo\yolo11n-seg.yaml",
+                       help='数据集YAML配置文件路径')
+    parser.add_argument('--workers', type=int, default=None,
+                       help='工作进程数,默认为CPU核心数-1')
+    
+    args = parser.parse_args()
     
     # 创建检测器并运行
-    checker = DatasetChecker(yaml_path)
+    print(f"使用配置文件: {args.yaml}")
+    if args.workers:
+        print(f"指定工作进程数: {args.workers}")
+    
+    checker = DatasetChecker(args.yaml, num_workers=args.workers)
     success = checker.run()
     
     # 返回状态码

@@ -16,4 +16,4 @@ yolov11-seg_images
 *.pt
 
 /runs
-/datasets
+/datasets*
