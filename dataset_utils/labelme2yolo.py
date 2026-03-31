@@ -85,36 +85,43 @@ def main():
     
     # 如果输入是目录
     if input_path.is_dir():
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import threading
         # 获取所有JSON文件
         json_files = list(input_path.glob('*.json'))
         if not json_files:
             print(f"No JSON files found in {input_path}")
             return
-        
+
         print(f"Found {len(json_files)} JSON files to convert")
-        
+
         # 创建输出目录
         if args.output:
             output_dir = Path(args.output)
             output_dir.mkdir(parents=True, exist_ok=True)
         else:
             output_dir = input_path
-        
+
         # 创建图片输出目录
         if args.img_output:
             img_output_dir = Path(args.img_output)
             img_output_dir.mkdir(parents=True, exist_ok=True)
         else:
             img_output_dir = None
-        
-        # 转换每个文件
-        for json_file in json_files:
+
+        def convert_one(json_file):
             txt_name = output_dir / (json_file.stem + '.txt')
             try:
                 convert(str(json_file), str(txt_name), str(img_output_dir) if img_output_dir else None)
                 print(f"Converted: {json_file.name}")
             except Exception as e:
                 print(f"Error converting {json_file.name}: {e}")
+
+        max_workers = min(32, os.cpu_count() * 2 or 4)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(convert_one, json_file) for json_file in json_files]
+            for future in as_completed(futures):
+                pass  # 结果已在convert_one中打印
     
     # 如果输入是单个文件
     elif input_path.is_file():
