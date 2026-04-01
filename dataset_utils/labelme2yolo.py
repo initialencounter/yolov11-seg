@@ -20,6 +20,7 @@ def convert_coor(size, xy):
     x, y = xy
     return x / dw, y / dh
 
+no_image_jsons = []
 def convert(file, txt_name=None, img_output_dir=None):
     if txt_name is None:
         txt_name = file.rstrip(".json") + ".txt"
@@ -34,11 +35,22 @@ def convert(file, txt_name=None, img_output_dir=None):
     if 'imageData' in js and js['imageData']:
         img_data = img_b64_to_arr(js['imageData'])
         img_name = os.path.splitext(os.path.basename(file))[0] + '.png'
-        if img_output_dir:
-            img_path = os.path.join(img_output_dir, img_name)
+    else:
+        img_name = js.get("imagePath")
+        image_path = Path(file).parent / img_name
+        if image_path.exists():
+            img_data = image_path.read_bytes()
+            img_data = img_b64_to_arr(base64.b64encode(img_data).decode('utf-8'))
         else:
-            img_path = txt_name.replace('.txt', '.png')
-        Image.fromarray(img_data).save(img_path)
+            print(f"Warning: No image data found for {file}, skipping image saving")
+            no_image_jsons.append(file)
+            return
+    
+    if img_output_dir:
+        img_path = os.path.join(img_output_dir, img_name)
+    else:
+        img_path = txt_name.replace('.txt', '.png')
+    Image.fromarray(img_data).save(img_path)
     
     # 写入标签文件
     with open(txt_name, "w") as txt_outfile:
@@ -132,3 +144,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+    with open("no_image_jsons.txt", "w") as f:
+        for json_file in no_image_jsons:
+            f.write(json_file + "\n")
