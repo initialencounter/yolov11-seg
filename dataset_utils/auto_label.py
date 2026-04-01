@@ -105,6 +105,7 @@ def process_image(model: YOLO, img_path: str) -> int:
                 print(f"  [skip] {Path(img_path).name} instance {i}: mask too small")
                 continue
 
+            # points = [[float(p[0]), float(p[1])] for p in mask_xy]
             points = mask_to_4pt_polygon(mask_xy)
             shapes.append(make_shape(label, points))
 
