@@ -5,11 +5,11 @@ from pathlib import Path
 from ultralytics import YOLO
 
 label_map = {0: "9", 1: "9A", 2: "BTY", 3: "CAO"}
-MODEL_PATH  = r"C:\Users\29115\yolov8\yolov11-seg\runs\segment_17k\yolo26n-segment-17k-65epochs\weights\best.pt"
-IMG_DIR     = r"C:\Users\29115\yolov8\yolov11-seg\datasets17k_labelme\labeled_5k"
-WRONG_IMG_DIR = r"C:\Users\29115\yolov8\yolov11-seg\datasets17k_labelme\labeled_5k_wrong"
+MODEL_PATH  = r"C:\Users\29115\yolov8\yolov11-seg\runs\segment_5k\136epoch\weights\best.pt"
+IMG_DIR     = r"C:\Users\29115\yolov8\yolov11-seg\datasets17k_labelme\labeled_8k"
 
 def check_annotations():
+    WRONG_IMG_DIR = os.path.join(Path(IMG_DIR).parent, Path(IMG_DIR).name + "_wrong")
     os.makedirs(WRONG_IMG_DIR, exist_ok=True)
     model = YOLO(MODEL_PATH)
 
@@ -39,7 +39,7 @@ def check_annotations():
         gt_labels = [shape["label"] for shape in data.get("shapes", [])]
         gt_labels.sort()
 
-        results = model.predict(img_path, conf=0.7, verbose=False) 
+        results = model.predict(img_path, conf=0.4, verbose=False) 
         
         pred_labels = []
         if len(results) > 0 and results[0].boxes is not None:
