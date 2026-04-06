@@ -1,10 +1,15 @@
 from ultralytics import YOLO
 
 if __name__ == '__main__':
-    # Load a model
-    model = YOLO("yolo11n-seg.yaml")  # build a new model from YAML
-    model = YOLO("yolo11n-seg.pt")  # load a pretrained model (recommended for training)
-    model = YOLO("yolo11n-seg.yaml").load("yolo11n.pt")  # build from YAML and transfer weights
+    model = YOLO("yolo26n-seg.pt")  # load a pretrained model (recommended for training)
 
-    # Train the model
-    results = model.train(data="datasets17k_yolo/yolo11n-seg.yaml", epochs=300, imgsz=640)
+    # Train the model with optimized GPU settings
+    results = model.train(
+        data="datasets9k/yolo26n-seg.yaml",
+        epochs=100,
+        resume=True,
+        save_period=10,
+        # patience=100,
+        augment=True,
+    )
+    
