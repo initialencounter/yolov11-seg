@@ -63,28 +63,29 @@ def crop_polygon_from_image(image_path, json_path, output_dir, padding=10):
         adjusted_points[:, 1] -= y_min
         cv2.fillPoly(mask, [adjusted_points], 255)
         
-        # 应用掩码(可选:使背景变为白色或透明)
-        # 这里我们保留整个矩形区域,方便查看
-        
-        # 在图像上绘制多边形轮廓,方便查看
-        cv2.polylines(cropped, [adjusted_points], True, (0, 255, 0), 2)
+        # 应用掩码:只保留多边形内像素，其余区域丢弃（设为透明）
+        # 转为4通道，添加alpha通道
+        cropped_rgba = cv2.cvtColor(cropped, cv2.COLOR_BGR2BGRA)
+        # 多边形内alpha=255，外部alpha=0
+        cropped_rgba[:, :, 3] = mask
+        # 可选：在图像上绘制多边形轮廓，方便查看（仅在RGB通道上绘制）
+        # cv2.polylines(cropped_rgba, [adjusted_points], True, (0, 255, 0, 255), 2)
         
         # 获取标签和置信度信息
         label = shape.get('label', 'unknown')
         description = shape.get('description', '')
         
-        # 构建输出文件名
+        # 构建输出文件名（保存为PNG以支持透明通道）
         if description:
-            # 提取置信度
             confidence = description.replace('confidence: ', '')
-            output_name = f"{base_name}_obj{idx}_{label}_conf{confidence}.jpg"
+            output_name = f"{base_name}_obj{idx}_{label}_conf{confidence}.png"
         else:
-            output_name = f"{base_name}_obj{idx}_{label}.jpg"
-        
+            output_name = f"{base_name}_obj{idx}_{label}.png"
+
         output_path = os.path.join(output_dir, output_name)
-        
-        # 保存切割后的图像
-        cv2.imwrite(output_path, cropped)
+
+        # 保存只保留多边形区域的图像（PNG带透明通道）
+        cv2.imwrite(output_path, cropped_rgba)
         count += 1
     
     return count
@@ -151,10 +152,10 @@ def main():
     """主函数"""
     # 配置路径
     # 输入目录 - 包含图像和JSON标注文件的目录
-    input_dir = r"c:\Users\29115\yolov8\yolov11-seg\datasets_20k\no_detection"
+    input_dir = r"C:\Users\29115\yolov8\yolov11-seg\datasets17k_labelme\labeled_8k"
     
     # 输出目录 - 切割后的图像保存位置
-    output_dir = r"c:\Users\29115\yolov8\yolov11-seg\datasets_20k\no_detection_cropped_polygons"
+    output_dir = r"C:\Users\29115\yolov8\yolov11-seg\datasets17k_labelme\8k_cropped_polygons"
     
     # 切割时的边距(像素)
     padding = 10
