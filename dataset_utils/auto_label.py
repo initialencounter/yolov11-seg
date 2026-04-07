@@ -13,7 +13,7 @@ from pathlib import Path
 from ultralytics import YOLO
 
 # ── 配置 ────────────────────────────────────────────────────────────────
-MODEL_PATH  = r"C:\Users\29115\yolov8\yolov11-seg\runs\segment_5k\136epoch\weights\best.pt"
+MODEL_PATH  = r"C:\Users\29115\yolov8\yolov11-seg\runs\segment_9k\613epoch\weights\best.pt"
 IMG_DIR     = r"C:\Users\29115\yolov8\yolov11-seg\datasets17k_labelme\img_006087"
 LABELME_VER = "5.11.3_auto_label"
 CONF_THRES  = 0.40  # 置信度阈值，可按需调整
