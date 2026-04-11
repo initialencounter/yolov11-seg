@@ -12,7 +12,6 @@ import numpy as np
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import Manager, cpu_count
 from tqdm import tqdm
-import struct
 
 def get_image_size_fast(image_path):
     """

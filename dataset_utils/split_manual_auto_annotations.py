@@ -4,7 +4,6 @@
 模型标注的数据points数量较多（大于10个点），放入train目录
 """
 import json
-import os
 import shutil
 from pathlib import Path
 

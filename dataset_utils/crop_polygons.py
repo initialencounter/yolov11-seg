@@ -152,10 +152,10 @@ def main():
     """主函数"""
     # 配置路径
     # 输入目录 - 包含图像和JSON标注文件的目录
-    input_dir = r"C:\Users\29115\yolov8\yolov11-seg\datasets17k_labelme\labeled_8k"
+    input_dir = r"C:\Users\29115\yolov8\yolov11-seg\datasets17k_labelme\labeled_12k"
     
     # 输出目录 - 切割后的图像保存位置
-    output_dir = r"C:\Users\29115\yolov8\yolov11-seg\datasets17k_labelme\8k_cropped_polygons"
+    output_dir = r"C:\Users\29115\yolov8\yolov11-seg\datasets17k_labelme\12k_cropped_polygons"
     
     # 切割时的边距(像素)
     padding = 10

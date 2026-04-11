@@ -1,6 +1,5 @@
 import os
 import json
-import glob
 
 def rename_labelme_dataset(directory, start_index, prefix="img_"):
     # 支持的图片格式

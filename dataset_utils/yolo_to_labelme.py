@@ -3,8 +3,6 @@ import json
 import base64
 from pathlib import Path
 from PIL import Image
-import numpy as np
-
 
 def yolo_to_labelme(yolo_txt_path, image_path, class_names=None):
     """
