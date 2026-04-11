@@ -3,10 +3,14 @@ from ultralytics import YOLO
 if __name__ == '__main__':
   # Load a model
   # model = YOLO("yolo11n-seg.pt")  # load an official model
-  model = YOLO(r"C:\Users\29115\yolov8\yolov11-seg\runs\segment\train\weights\best.pt")  # load a custom model
+  model = YOLO(r"C:\Users\29115\yolov8\yolov11-seg\runs\segment_12k\243epoch\weights\best.pt")  # load a custom model
+  
+  
 
   # Validate the model
-  metrics = model.val()  # no arguments needed, dataset and settings remembered
+  metrics = model.val(data=r"C:\Users\29115\yolov8\yolov11-seg\datasets12k_val\yolo26n-seg.yaml",
+                      name="12k_243epoch",
+                    )
   metrics.box.map  # map50-95(B)
   metrics.box.map50  # map50(B)
   metrics.box.map75  # map75(B)
