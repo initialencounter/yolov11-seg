@@ -69,4 +69,4 @@ if __name__ == "__main__":
     # )
     args = parser.parse_args()
     
-    remove_json_without_image(r"C:\Users\29115\yolov8\yolov11-seg\datasets17k_labelme\labeled_8k", dry_run=False)
+    remove_json_without_image(r"C:\Users\29115\yolov8\yolov11-seg\datasets17k_labelme\labeled_12k", dry_run=False)
