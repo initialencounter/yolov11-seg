@@ -17,3 +17,4 @@ yolov11-seg_images
 
 /runs
 /datasets*
+*.zip
